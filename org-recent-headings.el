@@ -171,20 +171,25 @@ some users may prefer to just use regexp matchers."
   "Return non-nil if A and B point to the same entry."
   (-let (((&plist :file a-file :id a-id :regexp a-regexp :outline-path a-outline-path) a)
          ((&plist :file b-file :id b-id :regexp b-regexp :outline-path b-outline-path) b))
-    (or (when (and a-id b-id)
-          ;; If the Org IDs are set and are the same, the entries point to
-          ;; the same heading
-          (string-equal a-id b-id))
-        (when (and a-outline-path b-outline-path)
-          ;; If both entries have outline-path in keys, compare file and olp
-          (and (string-equal a-file b-file)
-               (equal a-outline-path b-outline-path)))
-        (and
-         ;; Otherwise, if both the file path and regexp are the same,
-         ;; they point to the same heading
-         ;; FIXME: Eventually, remove this test when we remove :regexp
-         (string-equal a-file b-file)
-         (string-equal a-regexp b-regexp)))))
+    (when (and a-file b-file) ; Sanity check
+      (or (when (and a-id b-id)
+            ;; If the Org IDs are set and are the same, the entries point to
+            ;; the same heading
+            (string-equal a-id b-id))
+          (when (and a-outline-path b-outline-path)
+            ;; If both entries have outline-path in keys, compare file and olp
+            (and (string-equal a-file b-file)
+                 (equal a-outline-path b-outline-path)))
+          (when (and a-regexp b-regexp)
+            ;; NOTE: Very important to verify that both a-regexp and
+            ;; b-regexp are non-nil, because `string-equal' returns t
+            ;; if they are both nil.
+
+            ;; Otherwise, if both the file path and regexp are the same,
+            ;; they point to the same heading
+            ;; FIXME: Eventually, remove this test when we remove :regexp
+            (and (string-equal a-file b-file)
+                 (string-equal a-regexp b-regexp)))))))
 
 (defun org-recent-headings--compare-entries (a b)
   "Compare keys of cons cells A and B with `org-recent-headings--compare-keys'."
