@@ -161,6 +161,7 @@ when headings are refiled to other files or locations.  However,
 jumping by IDs may cause Org to load other Org files before
 jumping, in order to find the IDs, which may cause delays, so
 some users may prefer to just use regexp matchers."
+  ;; FIXME: When the regexp test is removed, update this tag.
   :type '(radio (const :tag "Never; just use regexps" nil)
                 (const :tag "When available" when-available)
                 (const :tag "Always; create new IDs when necessary" always)))
