@@ -79,10 +79,6 @@
   "When non-nil, enable debug warnings.")
 
 (defvar org-recent-headings-list nil
-  ;; Similar to `org-refile-cache'.  List of lists, each in format
-  ;;
-  ;; ((:file file-path :id id :regexp heading-regexp) .
-  ;;  (:display display-string :timestamps access-timestamps :num-timestamps number-of-access-timestamps))
   "List of recent Org headings.")
 
 (defconst org-recent-headings-save-file-header
@@ -166,11 +162,42 @@ some users may prefer to just use regexp matchers."
                 (const :tag "When available" when-available)
                 (const :tag "Always; create new IDs when necessary" always)))
 
+;;;; Minor mode
+
+;;;###autoload
+(define-minor-mode org-recent-headings-mode
+  "Global minor mode to keep a list of recently used Org headings so they can be quickly selected and jumped to.
+With prefix argument ARG, turn on if positive, otherwise off."
+  :global t
+  (let ((advice-function (if org-recent-headings-mode
+                             (lambda (to fun)
+                               ;; Enable mode
+                               (advice-add to :after fun))
+                           (lambda (from fun)
+                             ;; Disable mode
+                             (advice-remove from fun))))
+        (hook-setup (if org-recent-headings-mode 'add-hook 'remove-hook)))
+    (dolist (target org-recent-headings-advise-functions)
+      (when (fboundp target)
+        (funcall advice-function target 'org-recent-headings--store-heading)))
+    (dolist (hook org-recent-headings-store-heading-hooks)
+      (funcall hook-setup hook 'org-recent-headings--store-heading))
+    ;; Add/remove save hook
+    (funcall hook-setup 'kill-emacs-hook 'org-recent-headings--save-list)
+    ;; Load/save list
+    (if org-recent-headings-mode
+        (org-recent-headings--load-list)
+      (org-recent-headings--save-list))
+    ;; Display message
+    (if org-recent-headings-mode
+        (message "org-recent-headings-mode enabled.")
+      (message "org-recent-headings-mode disabled."))))
+
 ;;;; Commands
 
 ;;;;; Plain completing-read
 
-(cl-defun org-recent-headings (&optional &key (completing-read-fn #'completing-read))
+(defun org-recent-headings ()
   "Choose from recent Org headings."
   (interactive)
   (org-recent-headings--prepare-list)
@@ -295,67 +322,63 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
   (defun org-recent-headings-ivy ()
     "Choose from recent Org headings with Ivy."
     (interactive)
-    (org-recent-headings :completing-read-fn #'ivy-completing-read)))
+    (let ((completing-read-function  #'ivy-completing-read))
+      (org-recent-headings))))
 
 ;;;; Functions
 
-(defun org-recent-headings--store-heading (&rest ignore)
+(defun org-recent-headings--store-heading (&rest _ignore)
   "Add current heading to `org-recent-headings' list."
-  (-if-let* ((buffer (pcase major-mode
-                       ('org-agenda-mode
-                        (org-agenda-with-point-at-orig-entry
-                         ;; Get buffer the agenda entry points to
-                         (current-buffer)))
-                       ('org-mode
-                        ;;Get current buffer
-                        (current-buffer))))
-             (file-path (buffer-file-name (buffer-base-buffer buffer))))
-      (with-current-buffer buffer
-        (org-with-wide-buffer
-         (unless (org-before-first-heading-p)
-           (-when-let (heading (org-get-heading t t))
-             ;; Heading is not empty
-             (let* ((outline-path (if org-recent-headings-reverse-paths
-                                      (s-join "\\" (nreverse (org-split-string (org-format-outline-path (org-get-outline-path t)
-                                                                                                        1000 nil "")
-                                                                               "")))
-                                    (org-format-outline-path (org-get-outline-path t))))
-                    (display (concat (file-name-nondirectory file-path)
-                                     ":"
-                                     outline-path))
-                    (id (or (org-id-get)
-                            (when (eq org-recent-headings-use-ids 'always)
-                              (org-id-get-create))))
-                    (outline-path (org-get-outline-path t))
-                    (key (list :file file-path :id id :outline-path outline-path)))
-               ;; Look for existing item
-               (if-let ((existing (cl-assoc key org-recent-headings-list :test #'org-recent-headings--compare-keys))
-                        (attrs (frecency-update (cdr existing) :get-fn #'plist-get :set-fn #'plist-put)))
-                   ;; TODO: Try using `map-put' here instead of deleting and then re-adding.  Might
-                   ;; fix this weird bug, too.  Or maybe we could use (setf (cl-getf)) or
-                   ;; (cl--set-getf).
-                   (progn
-                     ;; Delete existing item
-                     ;; NOTE: cl-delete-if is destructive, but it
-                     ;; isn't working here, so we have to use setq and
-                     ;; cl-remove-if.
-                     (setq org-recent-headings-list (--remove (org-recent-headings--compare-keys (car it) key)
-                                                              org-recent-headings-list))
-                     (push (cons key attrs) org-recent-headings-list))
-                 ;; No existing item; add new one
-                 (push (cons key
-                             (frecency-update (list :display display)
-                               :get-fn #'plist-get
-                               :set-fn #'plist-put))
-                       org-recent-headings-list)))))))
-    ;; NOTE: Going to try only sorting and trimming when the list is presented.
-    ;; (cl-sort org-recent-headings-list #'> :key #'frecency-score)
-    ;; (org-recent-headings--trim)
+  (-if-let* ((entry (org-recent-headings--current-entry))
+             ((key . attrs) entry))
+      (-if-let* (((existing-key . existing-attrs) (cl-assoc entry org-recent-headings-list :test #'org-recent-headings--equal))
+                 (updated-entry (cons key (frecency-update existing-attrs :get-fn #'plist-get :set-fn #'plist-put))))
+          (progn
+            ;; Delete existing item, then add to front of list.
+            ;; MAYBE: Just add it, and delete the duplicate later?
+            (setq org-recent-headings-list (--remove (org-recent-headings--equal it entry)
+                                                     org-recent-headings-list))
+            (push updated-entry org-recent-headings-list))
+        ;; No existing item; add new one
+        (push (cons key (frecency-update attrs
+                          :get-fn #'plist-get
+                          :set-fn #'plist-put))
+              org-recent-headings-list))
+    ;; No entry: warn about possible non-Org buffer.  If this happens, it probably means
+    ;; that a function should be removed from `org-recent-headings-advise-functions'.
     (when org-recent-headings-debug
-      (warn
-       ;; If this happens, it probably means that a function should be
-       ;; removed from `org-recent-headings-advise-functions'
-       "`org-recent-headings--store-heading' called in non-Org buffer: %s.  Please report this bug." (current-buffer)))))
+      (warn "`org-recent-headings--store-heading' called in non-Org buffer: %s.  Please report this bug." (current-buffer)))))
+
+(defun org-recent-headings--current-entry ()
+  "Return entry for current Org entry, suitable for `org-recent-headings-list'."
+  (when-let* ((buffer (pcase major-mode
+                        ('org-agenda-mode (org-agenda-with-point-at-orig-entry
+                                           (current-buffer)))
+                        ('org-mode (current-buffer))))
+              ;; Get base buffer when applicable
+              (buffer (or (buffer-base-buffer buffer)
+                          buffer))
+              (file-path (buffer-file-name buffer)))
+    (with-current-buffer buffer
+      (org-with-wide-buffer
+       (unless (org-before-first-heading-p)
+         (when-let* ((heading (org-get-heading t t)))
+           ;; Heading is not empty
+           (let* ((outline-path (if org-recent-headings-reverse-paths
+                                    (--> (org-get-outline-path t)
+                                         (org-format-outline-path it 1000 nil "")
+                                         (org-split-string it "")
+                                         (nreverse it)
+                                         (s-join "\\" it))
+                                  (org-format-outline-path (org-get-outline-path t))))
+                  (display (concat (file-name-nondirectory file-path) ":" outline-path))
+                  (id (or (org-id-get)
+                          (when (eq org-recent-headings-use-ids 'always)
+                            (org-id-get-create))))
+                  (outline-path (org-get-outline-path t))
+                  (key (list :file file-path :id id :outline-path outline-path))
+                  (attrs (list :display display)))
+             (cons key attrs))))))))
 
 ;;;;; List maintenance
 
@@ -386,10 +409,12 @@ removed."
                         :from-end t))
 
 (defun org-recent-headings--equal (a b)
-  "Return non-nil if A and B point to the same Org entry."
-  (-let (((&plist :file a-file :id a-id :regexp a-regexp :outline-path a-outline-path) a)
-         ((&plist :file b-file :id b-id :regexp b-regexp :outline-path b-outline-path) b))
-    (when (and a-file b-file) ; Sanity check
+  "Return non-nil if A and B point to the same Org entry.
+A and B should be entries from `org-recent-headings-list' as
+conses in (key . attrs) format."
+  (-let ((((&plist :file a-file :id a-id :regexp a-regexp :outline-path a-outline-path) . _attrs) a)
+         (((&plist :file b-file :id b-id :regexp b-regexp :outline-path b-outline-path) . _attrs) b))
+    (when (and a-file b-file)           ; Sanity check
       (or (when (and a-id b-id)
             ;; If the Org IDs are set and are the same, the entries point to
             ;; the same heading
@@ -504,37 +529,6 @@ Read data from the file specified by `org-recent-headings-save-file'."
   (let ((file (expand-file-name org-recent-headings-save-file)))
     (when (file-readable-p file)
       (load-file file))))
-
-;;;; Minor mode
-
-;;;###autoload
-(define-minor-mode org-recent-headings-mode
-  "Global minor mode to keep a list of recently used Org headings so they can be quickly selected and jumped to.
-With prefix argument ARG, turn on if positive, otherwise off."
-  :global t
-  (let ((advice-function (if org-recent-headings-mode
-                             (lambda (to fun)
-                               ;; Enable mode
-                               (advice-add to :after fun))
-                           (lambda (from fun)
-                             ;; Disable mode
-                             (advice-remove from fun))))
-        (hook-setup (if org-recent-headings-mode 'add-hook 'remove-hook)))
-    (dolist (target org-recent-headings-advise-functions)
-      (when (fboundp target)
-        (funcall advice-function target 'org-recent-headings--store-heading)))
-    (dolist (hook org-recent-headings-store-heading-hooks)
-      (funcall hook-setup hook 'org-recent-headings--store-heading))
-    ;; Add/remove save hook
-    (funcall hook-setup 'kill-emacs-hook 'org-recent-headings--save-list)
-    ;; Load/save list
-    (if org-recent-headings-mode
-        (org-recent-headings--load-list)
-      (org-recent-headings--save-list))
-    ;; Display message
-    (if org-recent-headings-mode
-        (message "org-recent-headings-mode enabled.")
-      (message "org-recent-headings-mode disabled."))))
 
 ;;;; Footer
 
