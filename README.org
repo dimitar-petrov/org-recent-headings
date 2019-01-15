@@ -1,8 +1,8 @@
+#+TITLE: org-recent-headings
+
 #+BEGIN_HTML
 <a href=https://alphapapa.github.io/dont-tread-on-emacs/><img src="dont-tread-on-emacs-150.png" align="right"></a>
 #+END_HTML
-
-* org-recent-headings
 
 [[https://melpa.org/#/org-recent-headings][file:https://melpa.org/packages/org-recent-headings-badge.svg]] [[https://stable.melpa.org/#/org-recent-headings][file:https://stable.melpa.org/packages/org-recent-headings-badge.svg]]
 
