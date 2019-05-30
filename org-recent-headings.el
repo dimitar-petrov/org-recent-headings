@@ -397,10 +397,13 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
 This assumes the list is already sorted.  Whichever entries are
 at the end of the list, beyond the allowed list size, are
 removed."
-  (when (> (length org-recent-headings-list)
-           org-recent-headings-list-size)
-    (setq org-recent-headings-list (cl-subseq org-recent-headings-list
-                                              0 org-recent-headings-list-size))))
+  (let ((original-size (length org-recent-headings-list)))
+    (when (> original-size org-recent-headings-list-size)
+      (setq org-recent-headings-list (-take org-recent-headings-list-size org-recent-headings-list)))
+    (when-let* ((debug-p org-recent-headings-debug)
+                (new-size (length org-recent-headings-list))
+                (difference (/= original-size new-size)))
+      (warn "org-recent-headings-list reduced from %s to %s entries" original-size new-size))))
 
 (defun org-recent-headings--remove-duplicates ()
   "Remove duplicates from `org-recent-headings-list'."
