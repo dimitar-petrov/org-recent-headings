@@ -382,6 +382,8 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
 
 ;;;;; List maintenance
 
+;; TODO: Add boolean var tracking whether list has changed and needs preparing.
+
 (defun org-recent-headings--prepare-list ()
   "Sort and trim `org-recent-headings-list'."
   ;; FIXME: See task in notes.org.
