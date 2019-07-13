@@ -212,16 +212,17 @@ The first thing I'm going to do is write a function to present the entries in th
 ** Print ~org-recent-headings-list~ as an alist
 
 #+BEGIN_SRC elisp
-(with-current-buffer (get-buffer-create "recent headings")
-  (insert "'(")
-  (--each org-recent-headings-list
-    (-let (((&plist :file file :id id :outline-path olp) (car it)))
-      (prin1 (a-list :file file :outline-path olp :id id) (current-buffer))
-      (insert "\n")))
-  (insert ")")
-  (emacs-lisp-mode)
-  (flycheck-mode -1)
-  (goto-char (point-min))
-  (indent-pp-sexp t)
-  (switch-to-buffer (current-buffer)))
+  (with-current-buffer (get-buffer-create "*org-recent-headings-debug*")
+    (erase-buffer)
+    (insert "'(")
+    (--each org-recent-headings-list
+      (-let (((&plist :file file :id id :outline-path olp) (car it)))
+        (prin1 (a-list :file file :outline-path olp :id id) (current-buffer))
+        (insert "\n")))
+    (insert ")")
+    (emacs-lisp-mode)
+    (flycheck-mode -1)
+    (goto-char (point-min))
+    (indent-pp-sexp t)
+    (switch-to-buffer (current-buffer)))
 #+END_SRC
