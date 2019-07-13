@@ -26,6 +26,10 @@ Potential problem with this is that the number could grow very large very quickl
 
 *** TODO Decay day number when saving list
 
+** TODO [#A] Filters
+
+e.g. I generally only want files from =~/org= to be included.
+
 ** TODO List view using tabulated-list-mode
 
 with sortable columns, etc.
