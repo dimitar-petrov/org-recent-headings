@@ -73,6 +73,11 @@
 (require 'dash)
 (require 'frecency)
 
+;;;; Structs
+
+(cl-defstruct org-recent-heading
+  (id) (file) (outline-path) (display) (frecency))
+
 ;;;; Variables
 
 (defvar org-recent-headings-debug nil
@@ -203,17 +208,14 @@ With prefix argument ARG, turn on if positive, otherwise off."
   "Choose from recent Org headings."
   (interactive)
   (org-recent-headings--prepare-list)
-  (let* ((heading-display-strings (--map (plist-get (cdr it) :display) org-recent-headings-list))
+  (let* ((heading-display-strings (-map #'org-recent-heading-display org-recent-headings-list))
          (selected-heading (completing-read "Heading: " heading-display-strings))
-         ;; FIXME: If there are two headings with the same name, this
-         ;; will only pick the first one.  I guess it won't happen if
-         ;; full-paths are used, which most likely will be, but maybe
-         ;; it should still be fixed.
-         (real (car (cl-rassoc selected-heading org-recent-headings-list
-                               :test #'string=
-                               :key (lambda (it)
-                                      (plist-get it :display))))))
-    (funcall org-recent-headings-show-entry-function real)))
+         ;; FIXME: If there are two headings with the same name, this will only
+         ;; pick the first one.  I guess it won't happen if full-paths are used,
+         ;; which most likely will be, but maybe it should still be fixed.
+         (entry (car (--select (string= selected-heading (org-recent-heading-display it))
+                               org-recent-headings-list))))
+    (funcall org-recent-headings-show-entry-function entry)))
 
 ;;;;; Helm
 
@@ -275,44 +277,47 @@ With prefix argument ARG, turn on if positive, otherwise off."
 
   (defun org-recent-headings--truncate-candidates (candidates)
     "Return CANDIDATES with their DISPLAY string truncated to frame width."
+    ;; MAYBE: Can't we just truncate lines in the Helm buffer?
     (cl-loop with width = (- (frame-width) org-recent-headings-truncate-paths-by)
-             for (real . attrs) in candidates
-             for display = (plist-get attrs :display)
+             for entry in candidates
+             for display = (org-recent-heading-display entry)
              ;; FIXME: Why using setf here instead of just collecting the result of s-truncate?
              collect (cons (setf display (s-truncate width display))
-                           real)))
+                           entry)))
 
-  (defun org-recent-headings--bookmark-entry (real)
-    "Bookmark heading specified by REAL."
-    (-let (((&plist :file file :regexp regexp) real))
-      (with-current-buffer (or (org-find-base-buffer-visiting file)
-                               (find-file-noselect file)
-                               (error "File not found: %s" file))
-        (org-with-wide-buffer
-         (goto-char (point-min))
-         (re-search-forward regexp)
-         (bookmark-set)))))
+  ;; (defun org-recent-headings--bookmark-entry (real)
+  ;;   "Bookmark heading specified by REAL."
+  ;;   ;; FIXME: Rewrite this for struct and other changes.
+  ;;   (-let (((&plist :file file :regexp regexp) real))
+  ;;     (with-current-buffer (or (org-find-base-buffer-visiting file)
+  ;;                              (find-file-noselect file)
+  ;;                              (error "File not found: %s" file))
+  ;;       (org-with-wide-buffer
+  ;;        (goto-char (point-min))
+  ;;        (re-search-forward regexp)
+  ;;        (bookmark-set)))))
 
-  (defun org-recent-headings--remove-entries (&optional entries)
-    "Remove ENTRIES from recent headings list.
-ENTRIES should be a REAL cons, or a list of REAL conses."
-    ;; FIXME: Test this since list format changed.
-    (let ((entries (or (helm-marked-candidates)
-                       entries)))
-      (setq org-recent-headings-list
-            (seq-difference org-recent-headings-list
-                            entries
-                            (lambda (a b)
-                              ;; `entries' is only a list of keys, so we have to get
-                              ;; just the key of each entry in
-                              ;; `org-recent-headings-list' to compare them
-                              (let ((a (if (consp (car a))
-                                           (car a)
-                                         a))
-                                    (b (if (consp (car b))
-                                           (car b)
-                                         b)))
-                                (org-recent-headings--compare-keys a b))))))))
+  ;; (defun org-recent-headings--remove-entries (&optional entries)
+  ;;     "Remove ENTRIES from recent headings list.
+  ;; ENTRIES should be a REAL cons, or a list of REAL conses."
+  ;;     ;; FIXME: This doesn't work since list format changed.
+  ;;     (let ((entries (or (helm-marked-candidates)
+  ;;                        entries)))
+  ;;       (setq org-recent-headings-list
+  ;;             (seq-difference org-recent-headings-list
+  ;;                             entries
+  ;;                             (lambda (a b)
+  ;;                               ;; `entries' is only a list of keys, so we have to get
+  ;;                               ;; just the key of each entry in
+  ;;                               ;; `org-recent-headings-list' to compare them
+  ;;                               (let ((a (if (consp (car a))
+  ;;                                            (car a)
+  ;;                                          a))
+  ;;                                     (b (if (consp (car b))
+  ;;                                            (car b)
+  ;;                                          b)))
+  ;;                                 (org-recent-headings--compare-keys a b)))))))
+  )
 
 ;;;;; Ivy
 
@@ -331,23 +336,17 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
 
 (defun org-recent-headings--store-heading (&rest _ignore)
   "Add current heading to `org-recent-headings' list."
-  (-if-let* ((entry (org-recent-headings--current-entry))
-             (store-p (not (--any? (funcall it entry)
-                                   org-recent-headings-reject-any-fns)))
-             ((key . attrs) entry))
-      (-if-let* (((existing-key . existing-attrs) (cl-assoc entry org-recent-headings-list :test #'org-recent-headings--equal))
-                 (updated-entry (cons key (frecency-update existing-attrs :get-fn #'plist-get :set-fn #'plist-put))))
-          (progn
-            ;; Delete existing item, then add to front of list.
-            ;; MAYBE: Just add it, and delete the duplicate later?
-            (setq org-recent-headings-list (--remove (org-recent-headings--equal it entry)
-                                                     org-recent-headings-list))
-            (push updated-entry org-recent-headings-list))
-        ;; No existing item; add new one
-        (push (cons key (frecency-update attrs
-                          :get-fn #'plist-get
-                          :set-fn #'plist-put))
-              org-recent-headings-list))
+  (if-let* ((entry (org-recent-headings--current-entry))
+            (store-p (not (--any? (funcall it entry)
+                                  org-recent-headings-reject-any-fns))))
+      (if-let* ((existing-entry (car (cl-member entry org-recent-headings-list :test #'org-recent-headings--equal))))
+          ;; Update existing item.
+          (setf (org-recent-heading-frecency existing-entry)
+                (frecency-update (org-recent-heading-frecency existing-entry)))
+        ;; No existing item: add new one.
+        (setf (org-recent-heading-frecency entry)
+              (frecency-update (org-recent-heading-frecency entry)))
+        (push entry org-recent-headings-list))
     ;; No entry: warn about possible non-Org buffer.  If this happens, it probably means
     ;; that a function should be removed from `org-recent-headings-advise-functions'.
     (when org-recent-headings-debug
@@ -379,10 +378,9 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
                   (id (or (org-id-get)
                           (when (eq org-recent-headings-use-ids 'always)
                             (org-id-get-create))))
-                  (outline-path (org-get-outline-path t))
-                  (key (list :file file-path :id id :outline-path outline-path))
-                  (attrs (list :display display)))
-             (cons key attrs))))))))
+                  (outline-path (org-get-outline-path t)))
+             (make-org-recent-heading :id id :file file-path
+                                      :outline-path outline-path :display display))))))))
 
 ;;;;; List maintenance
 
@@ -392,9 +390,8 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
   "Sort and trim `org-recent-headings-list'."
   ;; FIXME: See task in notes.org.
   (setq org-recent-headings-list
-        (-sort (-on #'> (lambda (item)
-                          (frecency-score item :get-fn (lambda (item key)
-                                                         (plist-get (cdr item) key)))))
+        (-sort (-on #'> (lambda (entry)
+                          (frecency-score (org-recent-heading-frecency entry))))
                org-recent-headings-list))
   (org-recent-headings--trim))
 
@@ -413,16 +410,17 @@ removed."
 
 (defun org-recent-headings--remove-duplicates ()
   "Remove duplicates from `org-recent-headings-list'."
-  (cl-delete-duplicates org-recent-headings-list
-                        :test #'org-recent-headings--equal
-                        :from-end t))
+  (setq org-recent-headings-list
+        (cl-delete-duplicates org-recent-headings-list
+                              :test #'org-recent-headings--equal
+                              :from-end t)))
 
 (defun org-recent-headings--equal (a b)
   "Return non-nil if A and B point to the same Org entry.
 A and B should be entries from `org-recent-headings-list' as
 conses in (key . attrs) format."
-  (-let ((((&plist :file a-file :id a-id :regexp a-regexp :outline-path a-outline-path) . _attrs) a)
-         (((&plist :file b-file :id b-id :regexp b-regexp :outline-path b-outline-path) . _attrs) b))
+  (pcase-let* (((cl-struct org-recent-heading (id a-id) (file a-file) (outline-path a-outline-path)) a)
+               ((cl-struct org-recent-heading (id b-id) (file b-file) (outline-path b-outline-path)) b))
     (when (and a-file b-file)           ; Sanity check
       (or (when (and a-id b-id)
             ;; If the Org IDs are set and are the same, the entries point to
@@ -431,33 +429,21 @@ conses in (key . attrs) format."
           (when (and a-outline-path b-outline-path)
             ;; If both entries have outline-path in keys, compare file and olp
             (and (string-equal a-file b-file)
-                 (equal a-outline-path b-outline-path)))
-          (when (and a-regexp b-regexp)
-            ;; NOTE: Very important to verify that both a-regexp and
-            ;; b-regexp are non-nil, because `string-equal' returns t
-            ;; if they are both nil.
-
-            ;; Otherwise, if both the file path and regexp are the same,
-            ;; they point to the same heading
-            ;; FIXME: Eventually, remove this test when we remove :regexp
-            (and (string-equal a-file b-file)
-                 (string-equal a-regexp b-regexp)))))))
+                 (equal a-outline-path b-outline-path)))))))
 
 ;;;;; Show entries
 
-(defun org-recent-headings--show-entry-default (real)
-  "Show heading specified by REAL using default function.
+(defun org-recent-headings--show-entry-default (entry)
+  "Show heading specified by ENTRY using default function.
 Default function set in `org-recent-headings-show-entry-function'."
   ;; This is for the Helm source, to allow it to make use of a
   ;; customized option setting the default function.  Maybe there's a
   ;; better way, but this works.
-  (funcall org-recent-headings-show-entry-function real))
+  (funcall org-recent-headings-show-entry-function entry))
 
-(defun org-recent-headings--show-entry-direct (real)
-  "Go to heading specified by REAL.
-REAL is a plist with `:file', `:id', and `:regexp' entries.  If
-`:id' is non-nil, `:file' and `:regexp may be nil.'"
-  (let ((marker (org-recent-headings--entry-marker real)))
+(defun org-recent-headings--show-entry-direct (entry)
+  "Go to heading specified by ENTRY."
+  (let ((marker (org-recent-headings--entry-marker entry)))
     (switch-to-buffer (marker-buffer marker))
     (widen)
     (goto-char marker)
@@ -478,18 +464,15 @@ REAL is a plist with `:file', `:id', and `:regexp' entries.  If
         (org-reveal)
         (org-tree-to-indirect-buffer)))))
 
-(defun org-recent-headings--entry-marker (real)
-  "Return marker for entry specified by REAL.
+(defun org-recent-headings--entry-marker (entry)
+  "Return marker for ENTRY.
 Raises an error if entry can't be found."
-  (let* ((file-path (plist-get real :file))
-         (id (plist-get real :id))
-         (regexp (plist-get real :regexp))
-         (outline-path (plist-get real :outline-path))
-         (buffer (or (org-find-base-buffer-visiting file-path)
-                     (find-file-noselect file-path)
-                     (unless id
-                       ;; Don't give error if an ID, because Org might still be able to find it
-                       (error "File not found: %s" file-path)))))
+  (pcase-let* (((cl-struct org-recent-heading id file outline-path) entry)
+               (buffer (or (org-find-base-buffer-visiting file)
+                           (find-file-noselect file)
+                           (unless id
+                             ;; Don't give error if an ID, because Org might still be able to find it
+                             (error "File not found: %s" file)))))
     (if buffer
         (with-current-buffer buffer
           (save-excursion
@@ -500,10 +483,7 @@ Raises an error if entry can't be found."
               ;; TODO: Factor out entry-finding into separate function.
               (cond (id (org-id-find id 'marker))
                     (outline-path (org-find-olp outline-path 'this-buffer))
-                    (regexp (if (re-search-forward regexp nil t)
-                                (point-marker)
-                              (error "org-recent-headings: Couldn't find regexp for entry: %S" real)))
-                    (t (error "org-recent-headings: No way to find entry: %S" real))))))
+                    (t (error "org-recent-headings: No way to find entry: %S" entry))))))
       ;; No buffer; let Org try to find it.
       ;; NOTE: Not sure if it's helpful to do this separately in the code above when `buffer' is set.
       (org-id-find id 'marker))))
