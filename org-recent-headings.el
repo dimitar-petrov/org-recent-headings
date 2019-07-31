@@ -143,17 +143,18 @@ Depending on your org-level faces, you may want to adjust this to
 prevent paths from being wrapped onto a second line."
   :type 'integer)
 
-(defcustom org-recent-headings-use-ids nil
-  "Use Org IDs to jump to headings instead of regexp matchers.
+(defcustom org-recent-headings-use-ids 'when-available
+  "Use Org IDs to find headings instead of file/outline paths.
 Org IDs are more flexible, because Org may be able to find them
-when headings are refiled to other files or locations.  However,
-jumping by IDs may cause Org to load other Org files before
-jumping, in order to find the IDs, which may cause delays, so
-some users may prefer to just use regexp matchers."
-  ;; FIXME: When the regexp test is removed, update this tag.
-  :type '(radio (const :tag "Never; just use regexps" nil)
-                (const :tag "When available" when-available)
-                (const :tag "Always; create new IDs when necessary" always)))
+when headings are refiled to other files or locations.  Also,
+file/outline paths can be ambiguous if a file's outline has
+multiple headings with the same name.  But finding by ID may
+cause Org to load other Org files while searching for an ID,
+which takes time, so some users may prefer to just use
+file/outline paths, which will always search only one file."
+  :type '(radio (const :tag "Never: just use file/outline paths" nil)
+                (const :tag "When an ID already exists" when-available)
+                (const :tag "Always: create new IDs when necessary" always)))
 
 (defcustom org-recent-headings-reject-any-fns nil
   "Functions used to test potential headings.
