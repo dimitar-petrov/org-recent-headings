@@ -75,7 +75,7 @@
 
 ;;;; Structs
 
-(cl-defstruct org-recent-heading
+(cl-defstruct org-recent-headings-entry
   (id) (file) (outline-path) (display) (frecency))
 
 ;;;; Variables
@@ -208,12 +208,12 @@ With prefix argument ARG, turn on if positive, otherwise off."
   "Choose from recent Org headings."
   (interactive)
   (org-recent-headings--prepare-list)
-  (let* ((heading-display-strings (-map #'org-recent-heading-display org-recent-headings-list))
+  (let* ((heading-display-strings (-map #'org-recent-headings-entry-display org-recent-headings-list))
          (selected-heading (completing-read "Heading: " heading-display-strings))
          ;; FIXME: If there are two headings with the same name, this will only
          ;; pick the first one.  I guess it won't happen if full-paths are used,
          ;; which most likely will be, but maybe it should still be fixed.
-         (entry (car (--select (string= selected-heading (org-recent-heading-display it))
+         (entry (car (--select (string= selected-heading (org-recent-headings-entry-display it))
                                org-recent-headings-list))))
     (funcall org-recent-headings-show-entry-function entry)))
 
@@ -277,7 +277,7 @@ With prefix argument ARG, turn on if positive, otherwise off."
     ;; MAYBE: Can't we just truncate lines in the Helm buffer?
     (cl-loop with width = (- (frame-width) org-recent-headings-truncate-paths-by)
              for entry in candidates
-             for display = (org-recent-heading-display entry)
+             for display = (org-recent-headings-entry-display entry)
              ;; FIXME: Why using setf here instead of just collecting the result of s-truncate?
              collect (cons (setf display (s-truncate width display))
                            entry)))
@@ -320,11 +320,11 @@ With prefix argument ARG, turn on if positive, otherwise off."
                                   org-recent-headings-reject-any-fns))))
       (if-let* ((existing-entry (car (cl-member entry org-recent-headings-list :test #'org-recent-headings--equal))))
           ;; Update existing item.
-          (setf (org-recent-heading-frecency existing-entry)
-                (frecency-update (org-recent-heading-frecency existing-entry)))
+          (setf (org-recent-headings-entry-frecency existing-entry)
+                (frecency-update (org-recent-headings-entry-frecency existing-entry)))
         ;; No existing item: add new one.
-        (setf (org-recent-heading-frecency entry)
-              (frecency-update (org-recent-heading-frecency entry)))
+        (setf (org-recent-headings-entry-frecency entry)
+              (frecency-update (org-recent-headings-entry-frecency entry)))
         (push entry org-recent-headings-list))
     ;; No entry: warn about possible non-Org buffer.  If this happens, it probably means
     ;; that a function should be removed from `org-recent-headings-advise-functions'.
@@ -358,8 +358,7 @@ With prefix argument ARG, turn on if positive, otherwise off."
                           (when (eq org-recent-headings-use-ids 'always)
                             (org-id-get-create))))
                   (outline-path (org-get-outline-path t)))
-             (make-org-recent-heading :id id :file file-path
-                                      :outline-path outline-path :display display))))))))
+             (make-org-recent-headings-entry :id id :file file-path :outline-path outline-path :display display))))))))
 
 ;;;;; List maintenance
 
@@ -370,7 +369,7 @@ With prefix argument ARG, turn on if positive, otherwise off."
   ;; FIXME: See task in notes.org.
   (setq org-recent-headings-list
         (-sort (-on #'> (lambda (entry)
-                          (frecency-score (org-recent-heading-frecency entry))))
+                          (frecency-score (org-recent-headings-entry-frecency entry))))
                org-recent-headings-list))
   (org-recent-headings--trim))
 
@@ -398,16 +397,16 @@ removed."
   "Return non-nil if A and B point to the same Org entry.
 A and B should be entries from `org-recent-headings-list' as
 conses in (key . attrs) format."
-  (pcase-let* (((cl-struct org-recent-heading (id a-id) (file a-file) (outline-path a-outline-path)) a)
-               ((cl-struct org-recent-heading (id b-id) (file b-file) (outline-path b-outline-path)) b))
+  (pcase-let* (((cl-struct org-recent-headings-entry (id a-id) (file a-file) (outline-path a-outline-path)) a)
+               ((cl-struct org-recent-headings-entry (id b-id) (file b-file) (outline-path b-outline-path)) b))
     (when (and a-file b-file)           ; Sanity check
       (or (when (and a-id b-id)
             ;; If the Org IDs are set and are the same, the entries point to
             ;; the same heading
-            (string-equal a-id b-id))
+            (string= a-id b-id))
           (when (and a-outline-path b-outline-path)
             ;; If both entries have outline-path in keys, compare file and olp
-            (and (string-equal a-file b-file)
+            (and (string= a-file b-file)
                  (equal a-outline-path b-outline-path)))))))
 
 ;;;;; Show entries
@@ -446,7 +445,7 @@ REAL is a plist with `:file', `:id', and `:regexp' entries.  If
 (defun org-recent-headings--entry-marker (entry)
   "Return marker for ENTRY.
 Raises an error if entry can't be found."
-  (pcase-let* (((cl-struct org-recent-heading id file outline-path) entry)
+  (pcase-let* (((cl-struct org-recent-headings-entry id file outline-path) entry)
                (buffer (or (org-find-base-buffer-visiting file)
                            (find-file-noselect file)
                            (unless id
