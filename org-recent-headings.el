@@ -221,32 +221,26 @@ With prefix argument ARG, turn on if positive, otherwise off."
 
 (with-eval-after-load 'helm
 
+  ;; This declaration is absolutely necessary for some reason.  Even if `helm' is loaded
+  ;; before this package is loaded, an "invalid function" error will be raised when this
+  ;; package is loaded, unless this declaration is here.  Even if I manually "(require
+  ;; 'helm)" and then load this package after the error (and Helm is already loaded, and I've
+  ;; verified that `helm-build-sync-source' is defined), once Emacs has tried to load this
+  ;; package thinking that the function is invalid, it won't stop thinking it's invalid.  It
+  ;; also seems to be related to `defvar' not doing anything when run a second time (unless
+  ;; called with `eval-defun').  But at the same time, the error didn't always happen in my
+  ;; config, or with different combinations of `with-eval-after-load', "(when (fboundp 'helm)
+  ;; ...)", and loading packages in a different order.  I don't know exactly why it's
+  ;; happening, but at the moment, this declaration seems to fix it.  Let us hope it really
+  ;; does.  I hope no one else is suffering from this, because if so, I have inflicted mighty
+  ;; annoyances upon them, and I wouldn't blame them if they never used this package again.
+  (declare-function helm-build-sync-source "helm")
+
   (defvar org-recent-headings-helm-map
     (let ((map (copy-keymap helm-map)))
       (define-key map (kbd "<C-return>") 'org-recent-headings--show-entry-indirect-helm-action)
       map)
     "Keymap for `helm-source-org-recent-headings'.")
-
-  ;; This declaration is absolutely necessary for some reason.  Even
-  ;; if `helm' is loaded before this package is loaded, an "invalid
-  ;; function" error will be raised when this package is loaded,
-  ;; unless this declaration is here.  Even if I manually "(require
-  ;; 'helm)" and then load this package after the error (and Helm is
-  ;; already loaded, and I've verified that `helm-build-sync-source'
-  ;; is defined), once Emacs has tried to load this package thinking
-  ;; that the function is invalid, it won't stop thinking it's
-  ;; invalid.  It also seems to be related to `defvar' not doing
-  ;; anything when run a second time (unless called with
-  ;; `eval-defun').  But at the same time, the error didn't always
-  ;; happen in my config, or with different combinations of
-  ;; `with-eval-after-load', "(when (fboundp 'helm) ...)", and loading
-  ;; packages in a different order.  I don't know exactly why it's
-  ;; happening, but at the moment, this declaration seems to fix it.
-  ;; Let us hope it really does.  I hope no one else is suffering from
-  ;; this, because if so, I have inflicted mighty annoyances upon
-  ;; them, and I wouldn't blame them if they never used this package
-  ;; again.
-  (declare-function helm-build-sync-source "helm")
 
   (defvar helm-source-org-recent-headings
     (helm-build-sync-source " Recent Org headings"
@@ -255,12 +249,15 @@ With prefix argument ARG, turn on if positive, otherwise off."
                     org-recent-headings-list)
       :candidate-number-limit 'org-recent-headings-candidate-number-limit
       :candidate-transformer 'org-recent-headings--truncate-candidates
+      ;; FIXME: If `org-recent-headings-helm-map' is changed after this `defvar' is
+      ;; evaluated, the keymap used in the source is not changed, which is very confusing
+      ;; for users (including myself).  Maybe we should build the source at runtime.
       :keymap org-recent-headings-helm-map
       :action (helm-make-actions
                "Show entry (default function)" 'org-recent-headings--show-entry-default
                "Show entry in real buffer" 'org-recent-headings--show-entry-direct
                "Show entry in indirect buffer" 'org-recent-headings--show-entry-indirect
-               "Remove entry" 'org-recent-headings--remove-entries
+               "Remove entry" 'org-recent-headings-helm-remove-entries
                "Bookmark heading" 'org-recent-headings--bookmark-entry))
     "Helm source for `org-recent-headings'.")
 
@@ -285,39 +282,10 @@ With prefix argument ARG, turn on if positive, otherwise off."
              collect (cons (setf display (s-truncate width display))
                            entry)))
 
-  ;; (defun org-recent-headings--bookmark-entry (real)
-  ;;   "Bookmark heading specified by REAL."
-  ;;   ;; FIXME: Rewrite this for struct and other changes.
-  ;;   (-let (((&plist :file file :regexp regexp) real))
-  ;;     (with-current-buffer (or (org-find-base-buffer-visiting file)
-  ;;                              (find-file-noselect file)
-  ;;                              (error "File not found: %s" file))
-  ;;       (org-with-wide-buffer
-  ;;        (goto-char (point-min))
-  ;;        (re-search-forward regexp)
-  ;;        (bookmark-set)))))
-
-  ;; (defun org-recent-headings--remove-entries (&optional entries)
-  ;;     "Remove ENTRIES from recent headings list.
-  ;; ENTRIES should be a REAL cons, or a list of REAL conses."
-  ;;     ;; FIXME: This doesn't work since list format changed.
-  ;;     (let ((entries (or (helm-marked-candidates)
-  ;;                        entries)))
-  ;;       (setq org-recent-headings-list
-  ;;             (seq-difference org-recent-headings-list
-  ;;                             entries
-  ;;                             (lambda (a b)
-  ;;                               ;; `entries' is only a list of keys, so we have to get
-  ;;                               ;; just the key of each entry in
-  ;;                               ;; `org-recent-headings-list' to compare them
-  ;;                               (let ((a (if (consp (car a))
-  ;;                                            (car a)
-  ;;                                          a))
-  ;;                                     (b (if (consp (car b))
-  ;;                                            (car b)
-  ;;                                          b)))
-  ;;                                 (org-recent-headings--compare-keys a b)))))))
-  )
+  (cl-defun org-recent-headings-helm-remove-entries (&rest _ignore)
+    "Remove selected/marked candidates from recent headings list."
+    (--each (helm-marked-candidates)
+      (org-recent-headings--remove-entry it))))
 
 ;;;;; Ivy
 
@@ -333,6 +301,17 @@ With prefix argument ARG, turn on if positive, otherwise off."
       (org-recent-headings))))
 
 ;;;; Functions
+
+(defun org-recent-headings--bookmark-entry (entry)
+  "Bookmark heading specified by ENTRY."
+  (org-with-point-at (org-recent-headings--entry-marker entry)
+    (bookmark-set)))
+
+(defun org-recent-headings--remove-entry (entry)
+  "Remove ENTRY from recent headings list."
+  (setf org-recent-headings-list
+        (cl-remove entry org-recent-headings-list
+                   :test #'org-recent-headings--equal)))
 
 (defun org-recent-headings--store-heading (&rest _ignore)
   "Add current heading to `org-recent-headings' list."
