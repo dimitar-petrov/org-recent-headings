@@ -155,6 +155,14 @@ some users may prefer to just use regexp matchers."
                 (const :tag "When available" when-available)
                 (const :tag "Always; create new IDs when necessary" always)))
 
+(defcustom org-recent-headings-reject-any-fns nil
+  "Functions used to test potential headings.
+If any function in this list returns non-nil, the heading is not
+saved.  Functions are called with one argument, an entry, which
+is returned by function `org-recent-headings--current-entry',
+which see."
+  :type '(repeat function))
+
 ;;;; Minor mode
 
 ;;;###autoload
@@ -323,6 +331,8 @@ ENTRIES should be a REAL cons, or a list of REAL conses."
 (defun org-recent-headings--store-heading (&rest _ignore)
   "Add current heading to `org-recent-headings' list."
   (-if-let* ((entry (org-recent-headings--current-entry))
+             (store-p (not (--any? (funcall it entry)
+                                   org-recent-headings-reject-any-fns)))
              ((key . attrs) entry))
       (-if-let* (((existing-key . existing-attrs) (cl-assoc entry org-recent-headings-list :test #'org-recent-headings--equal))
                  (updated-entry (cons key (frecency-update existing-attrs :get-fn #'plist-get :set-fn #'plist-put))))
