@@ -89,26 +89,19 @@
   "Jump to recently used Org headings."
   :group 'org)
 
-(defcustom org-recent-headings-advise-functions '(org-agenda-goto
-                                                  org-agenda-show
-                                                  org-agenda-show-mouse
-                                                  org-show-entry
-                                                  org-reveal
-                                                  org-refile
-                                                  org-tree-to-indirect-buffer
-                                                  helm-org-parent-headings
-                                                  helm-org-in-buffer-headings
-                                                  helm-org-agenda-files-headings
-                                                  org-bookmark-jump
-                                                  helm-org-bookmark-jump-indirect)
+(defcustom org-recent-headings-advise-functions
+  '(org-agenda-goto org-agenda-show org-agenda-show-mouse org-show-entry
+                    org-reveal org-refile org-tree-to-indirect-buffer
+                    org-bookmark-jump
+                    helm-org-parent-headings helm-org-in-buffer-headings
+                    helm-org-agenda-files-headings helm-org-bookmark-jump-indirect)
   "Functions to advise to store recent headings.
 Whenever one of these functions is called, the heading for the
 entry at point will be added to the recent-headings list.  This
 means that the point should be in a regular Org buffer (i.e. not
 an agenda buffer)."
   ;; FIXME: This needs to toggle the mode when set, if it's active
-  :type '(repeat function)
-  :group 'org-recent-headings)
+  :type '(repeat function))
 
 (defcustom org-recent-headings-store-heading-hooks '(org-capture-prepare-finalize-hook)
   "Hooks to add heading-storing function to."
