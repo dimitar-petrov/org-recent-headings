@@ -224,26 +224,17 @@ With prefix argument ARG, turn on if positive, otherwise off."
 
 ;;;;; Helm
 
+(declare-function helm "ext:helm" t t)
+(declare-function helm-build-sync-source "helm-source" t t)
+(declare-function helm-exit-and-execute-action "ext:helm" t t)
+(declare-function helm-marked-candidates "ext:helm" t t)
+(declare-function with-helm-alive-p "ext:helm" t t)
+(declare-function helm-make-actions "ext:helm-lib" t t)
+
 (with-eval-after-load 'helm
 
-  ;; This declaration is absolutely necessary for some reason.  Even if `helm' is loaded
-  ;; before this package is loaded, an "invalid function" error will be raised when this
-  ;; package is loaded, unless this declaration is here.  Even if I manually "(require
-  ;; 'helm)" and then load this package after the error (and Helm is already loaded, and I've
-  ;; verified that `helm-build-sync-source' is defined), once Emacs has tried to load this
-  ;; package thinking that the function is invalid, it won't stop thinking it's invalid.  It
-  ;; also seems to be related to `defvar' not doing anything when run a second time (unless
-  ;; called with `eval-defun').  But at the same time, the error didn't always happen in my
-  ;; config, or with different combinations of `with-eval-after-load', "(when (fboundp 'helm)
-  ;; ...)", and loading packages in a different order.  I don't know exactly why it's
-  ;; happening, but at the moment, this declaration seems to fix it.  Let us hope it really
-  ;; does.  I hope no one else is suffering from this, because if so, I have inflicted mighty
-  ;; annoyances upon them, and I wouldn't blame them if they never used this package again.
-  (declare-function helm-build-sync-source "helm")
-  (declare-function helm-exit-and-execute-action "helm")
-  (declare-function helm-marked-candidates "helm")
-  (declare-function with-helm-alive-p "helm")
-  (declare-function helm-make-actions "helm-lib")
+  ;; ;; This shouldn't be necessary, because `helm' requires `helm-source', but let's see if it fixes the problem...
+  ;; (require 'helm-source)
 
   (defvar helm-map)
   (defvar org-recent-headings-helm-map
